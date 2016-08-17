@@ -25,7 +25,7 @@
 
 use strict;
 use warnings;
-use Mail::IMAPClient;
+use Mail::IMAPClient 3.22;
 use Getopt::Long;
 
 ## Print Usage if not all parameters are supplied
@@ -38,7 +38,10 @@ Parameters:
   --user=[USERNAME]      : Username to connect with
   --pass=[PASSWORD]      : Password to connect with
   --passfile=[FILE]      : Read password from file
-  --folder=[IMAP FOLDER] : The IMAP folder to check\n\n";
+  --folder=[IMAP FOLDER] : The IMAP folder to check
+  --starttls             : Use STARTTLS
+  --ssl                  : Use SSL, changing default port to 993
+\n";
 }
 
 ## Initialize the mandatory options
@@ -49,7 +52,8 @@ my $options = {
               };
 
 ## Get the options
-GetOptions ( $options, "host=s", "user=s", "pass=s", "folder=s", "passfile=s" );
+GetOptions ( $options, "host=s", "user=s", "pass=s", "folder=s", "passfile=s",
+                       "ssl", "starttls" );
 
 ## Check if all mandatory parameters are supplied. Print usage if not
 foreach (keys %{$options})
@@ -95,6 +99,8 @@ $imap = Mail::IMAPClient->new (
                 Server  => $options->{host},
                 User    => $options->{user},
                 Password=> $options->{pass},
+                Ssl     => $options->{ssl},
+                Starttls=> $options->{starttls},
                 Clear   => 5,   # Unnecessary since '5' is the default
                 ) or print "Cannot connect to $options->{host}: $@\n" and exit 2;
 
