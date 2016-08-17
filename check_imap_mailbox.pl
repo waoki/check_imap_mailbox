@@ -41,22 +41,20 @@ Parameters:
   --folder=[IMAP FOLDER] : The IMAP folder to check\n\n";
 }
 
-## Initialize the options
+## Initialize the mandatory options
 my $options = {
-                'host'   => undef,
-                'user'   => undef,
-                'pass'      => undef,
-                'passfile' => undef,
-                'folder' => undef,
+                'host'   => '',
+                'user'   => '',
+                'folder' => '',
               };
 
 ## Get the options
 GetOptions ( $options, "host=s", "user=s", "pass=s", "folder=s", "passfile=s" );
 
 ## Check if all mandatory parameters are supplied. Print usage if not
-foreach ('host', 'user', 'folder')
+foreach (keys %{$options})
 {
-  if ( ! $options->{$_} )
+  if ( $options->{$_} eq '' )
   {
     print "\nError: Parameter missing --$_\n";
     Usage();
