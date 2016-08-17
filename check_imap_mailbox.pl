@@ -44,8 +44,8 @@ Parameters:
 my $options = {
                 'host'   => '',
                 'user'   => '',
-                'pass' 	 => '',
-				'folder' => '',
+                'pass'      => '',
+                'folder' => '',
               };
 
 ## Get the options
@@ -68,11 +68,11 @@ my $imap = Mail::IMAPClient->new;
         
 ## Connect to server
 $imap = Mail::IMAPClient->new (  
-				Server  => $options->{host},
+                Server  => $options->{host},
                 User    => $options->{user},
                 Password=> $options->{pass},
                 Clear   => 5,   # Unnecessary since '5' is the default
-        		) or die "Cannot connect to $options->{host} as $options->{user}: $@";
+                ) or print "Cannot connect to $options->{host}: $@\n" and exit 2;
 
 
 ## Check if folder exists
