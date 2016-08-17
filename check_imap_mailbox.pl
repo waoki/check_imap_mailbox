@@ -93,7 +93,7 @@ if ( ! $options->{pass} )
 
 ## Returns an unconnected Mail::IMAPClient object:
 my $imap = Mail::IMAPClient->new;       
-        
+
 ## Connect to server
 $imap = Mail::IMAPClient->new (  
                 Server  => $options->{host},
@@ -108,7 +108,7 @@ $imap = Mail::IMAPClient->new (
 ## Check if folder exists
 if ( ! $imap->exists($options->{folder}) )
 {
-   print "CRIT: folder $options->{folder} doesn't exists";
+   print "CRIT: folder $options->{folder} doesn't exist";
    exit 2;
 }
 
