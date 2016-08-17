@@ -58,7 +58,7 @@ foreach (keys %{$options})
   {
     print "\nError: Parameter missing --$_\n";
     Usage();
-    exit(1);
+    exit(3);
   }
 }
 
