@@ -64,18 +64,23 @@ foreach (keys %{$options})
 
 # Load password if needed, overriding password specified on command line
 # if one exists)
-if ($options->{passfile}) {
-   my $pwf;
-  if (open($pwf, '<', $options->{passfile})) {
+if ($options->{passfile})
+{
+  my $pwf;
+  if ( open($pwf, '<', $options->{passfile}) )
+  {
     $options->{pass} = <$pwf>;
     chomp $options->{pass};
-  } else {
+  }
+  else
+  {
     print "Unable to read password from ". $options->{passfile} . "\n";
     exit(3);
   }
 }
 
-if (! $options->{pass}) {
+if ( ! $options->{pass} )
+{
   print "\nError: No password specified\n";
   Usage();
   exit(3);
