@@ -41,6 +41,8 @@ Connection parameters:
   --folder=[IMAP FOLDER] : The IMAP folder to check
   --starttls             : Use STARTTLS
   --ssl                  : Use SSL, changing default port to 993
+  --on-connfail=crit|unk : Return CRITICAL (default) or UNKNOWN if connection
+                           fails
 
 Unread message checks:
   --max-unread-crit      : Maximum unread messages before returning CRITICAL
@@ -51,16 +53,18 @@ Unread message checks:
 \n";
 }
 
-## Initialize the mandatory options
+## Initialize defaults & mandatory options
 my $options = {
                 'host'   => '',
                 'user'   => '',
                 'folder' => '',
+                'on-connfail' => 'crit'
               };
 
 ## Get the options
 GetOptions ( $options, "host=s", "user=s", "pass=s", "folder=s", "passfile=s"
                       ,"ssl", "starttls"
+                      ,"on-connfail=s"
                       ,"max-unread-crit=i", "max-unread-warn=i"
                       ,"min-unread-crit=i", "min-unread-warn=i"
                       );
@@ -115,6 +119,24 @@ if ( defined($options->{'min-unread-crit'}) || defined($options->{'min-unread-wa
 }
 
 
+# Translate
+if ( $options->{'on-connfail'} eq 'crit' )
+{
+  $options->{'on-connfail'} = 1;
+}
+elsif ( $options->{'on-connfail'} eq 'unk' )
+{
+  $options->{'on-connfail'} = 3;
+}
+else
+{
+  print "\nError: --on-connfail must be 'crit' or 'unk'\n";
+  exit(3);
+}
+
+
+
+
 
 # Load password if needed, overriding password specified on command line
 # if one exists)
@@ -152,7 +174,7 @@ $imap = Mail::IMAPClient->new (
                 Ssl     => $options->{ssl},
                 Starttls=> $options->{starttls},
                 Clear   => 5,   # Unnecessary since '5' is the default
-                ) or print "Cannot connect to $options->{host}: $@\n" and exit 2;
+                ) or print "Cannot connect to $options->{host}: $@\n" and exit $options->{'on-connfail'};
 
 
 my $msg = check_imap_mailbox::msg->new();
