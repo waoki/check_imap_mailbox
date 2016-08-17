@@ -37,29 +37,50 @@ Parameters:
   --host=[HOSTNAME]      : Name or IP address of IMAP server
   --user=[USERNAME]      : Username to connect with
   --pass=[PASSWORD]      : Password to connect with
+  --passfile=[FILE]      : Read password from file
   --folder=[IMAP FOLDER] : The IMAP folder to check\n\n";
 }
 
 ## Initialize the options
 my $options = {
-                'host'   => '',
-                'user'   => '',
-                'pass'      => '',
-                'folder' => '',
+                'host'   => undef,
+                'user'   => undef,
+                'pass'      => undef,
+                'passfile' => undef,
+                'folder' => undef,
               };
 
 ## Get the options
-GetOptions ( $options, "host=s", "user=s", "pass=s", "folder=s" );
+GetOptions ( $options, "host=s", "user=s", "pass=s", "folder=s", "passfile=s" );
 
-## Check if all parameters are supplied. Print usage if not
-foreach (keys %{$options})
+## Check if all mandatory parameters are supplied. Print usage if not
+foreach ('host', 'user', 'folder')
 {
-  if ( $options->{$_} eq '' )
+  if ( ! $options->{$_} )
   {
     print "\nError: Parameter missing --$_\n";
     Usage();
     exit(3);
   }
+}
+
+# Load password if needed, overriding password specified on command line
+# if one exists)
+if ($options->{passfile}) {
+   my $pwf;
+  if (open($pwf, '<', $options->{passfile})) {
+    $options->{pass} = <$pwf>;
+    chomp $options->{pass};
+  } else {
+    print "Unable to read password from ". $options->{passfile} . "\n";
+    exit(3);
+  }
+}
+
+if (! $options->{pass}) {
+  print "\nError: No password specified\n";
+  Usage();
+  exit(3);
 }
 
 
