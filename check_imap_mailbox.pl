@@ -26,6 +26,8 @@
 use strict;
 use warnings;
 use Mail::IMAPClient 3.22;
+use Date::Manip;
+use Data::Dumper;
 use Getopt::Long;
 
 ## Print Usage if not all parameters are supplied
@@ -45,10 +47,17 @@ Connection parameters:
                            fails
 
 Unread message checks:
-  --max-unread-crit      : Maximum unread messages before returning CRITICAL
-  --max-unread-warn      : Maximum unread messages before returning WARNING
-  --min-unread-crit      : Minimum unread messages before returning CRITICAL
-  --min-unread-warn      : Minimum unread messages before returning WARNING
+  --max-unread-crit [COUNT] : Maximum unread messages before returning CRITICAL
+  --max-unread-warn [COUNT] : Maximum unread messages before returning WARNING
+  --min-unread-crit [COUNT] : Minimum unread messages before returning CRITICAL
+  --min-unread-warn [COUNT] : Minimum unread messages before returning WARNING
+
+Message age checks, supported even without RFC5032:
+  --younger-age [SECONDS]    : Maximum age in SECONDS for age checks
+  --max-younger-crit [COUNT] : Maximum messages younger than SECONDS
+  --max-younger-warn [COUNT] : Maximum messages younger than SECONDS
+  --min-younger-crit [COUNT] : Minimum messages younger than SECONDS
+  --min-younger-warn [COUNT] : Minimum messages younger than SECONDS
 
 \n";
 }
@@ -67,6 +76,9 @@ GetOptions ( $options, "host=s", "user=s", "pass=s", "folder=s", "passfile=s"
                       ,"on-connfail=s"
                       ,"max-unread-crit=i", "max-unread-warn=i"
                       ,"min-unread-crit=i", "min-unread-warn=i"
+                      ,"younger-age=i"
+                      ,"max-younger-crit=i", "max-younger-warn=i"
+                      ,"min-younger-crit=i", "min-younger-warn=i"
                       );
 
 ## Check if all mandatory parameters are supplied. Print usage if not
@@ -117,7 +129,51 @@ if ( defined($options->{'min-unread-crit'}) || defined($options->{'min-unread-wa
     }
   }
 }
-
+if ( defined($options->{'younger-age'}) )
+{
+  if ( $options->{'younger-age'} < 0 )
+  {
+    print "\nError: --younger-age cannot be negative\n";
+    Usage();
+    exit(3);
+  }
+  if ( defined($options->{'max-younger-crit'}) || defined($options->{'max-younger-warn'}) )
+  {
+    unless ( defined($options->{'max-younger-crit'}) &&
+             defined($options->{'max-younger-warn'}) )
+    {
+      print "\nError: --max-younger-crit and --max-younger-warn must be used together\n";
+      Usage();
+      exit(3);
+    }
+    else
+    {
+      unless ( $options->{'max-younger-crit'} >= $options->{'max-younger-warn'} )
+      {
+        print "\nError: --max-younger-crit must be >= --max-younger-warn\n";
+        exit(3);
+      }
+    }
+  }
+  if ( defined($options->{'min-younger-crit'}) || defined($options->{'min-younger-warn'}) )
+  {
+    unless ( defined($options->{'min-younger-crit'}) &&
+             defined($options->{'min-younger-warn'}) )
+    {
+      print "\nError: --min-younger-crit and --min-younger-warn must be used together\n";
+      Usage();
+      exit(3);
+    }
+    else
+    {
+      unless ( $options->{'min-younger-crit'} <= $options->{'min-younger-warn'} )
+      {
+        print "\nError: --min-younger-crit must be <= --min-younger-warn\n";
+        exit(3);
+      }
+    }
+  }
+}
 
 # Translate
 if ( $options->{'on-connfail'} eq 'crit' )
@@ -173,6 +229,7 @@ $imap = Mail::IMAPClient->new (
                 Password=> $options->{pass},
                 Ssl     => $options->{ssl},
                 Starttls=> $options->{starttls},
+                Uid     => 1,
                 Clear   => 5,   # Unnecessary since '5' is the default
                 ) or print "Cannot connect to $options->{host}: $@\n" and exit $options->{'on-connfail'};
 
@@ -180,10 +237,9 @@ $imap = Mail::IMAPClient->new (
 my $msg = check_imap_mailbox::msg->new();
 
 ## Check if folder exists
-if ( ! $imap->exists($options->{folder}) )
+if ( ! $imap->select($options->{folder}) )
 {
    $msg->update(2, "folder $options->{folder} doesn't exist");
-   # XXX short-circuit
 }
 else
 {
@@ -191,7 +247,120 @@ else
   ## Read the unseen messages in folder
   my $unseen = $imap->unseen_count($options->{folder}) || "0";
 
-  ## Check unseen messages
+  check_unseen($msg, $unseen);
+
+  my $n_younger;
+  if ( defined($options->{'younger-age'}) )
+  {
+    $n_younger = get_younger_ct($msg, $imap);
+    check_younger($msg, $n_younger);
+  }
+
+  # won't override if an error's been reported, so this is safe:
+  my $okmsg = "$unseen unread messages";
+  if ( defined($n_younger) )
+  {
+    $okmsg .= ", ${n_younger} messages newer than $options->{'younger-age'} secs in $options->{folder}";
+  }
+  $msg->update(0, $okmsg);
+
+}
+
+
+print $msg->getmsg();
+print "\n";
+exit $msg->getstatus();
+
+
+# Returns count of messages arrived within $options->{'younger-age'} secs
+# Updates $msg in case of errors
+sub get_younger_ct {
+  my $msg = shift;
+  my $imap = shift;
+
+  my $threshold = new Date::Manip::Date;
+  $threshold->secs_since_1970_GMT(time() - $options->{'younger-age'});
+
+  # To support servers without YOUNGER search term, we'll have to pull a coarse
+  # range and look at them locally.
+  # XXX IMAP doesn't want a time zone here. We should deal with time zones
+  # better than this, but for now, limit our search to a 1-day window
+  my $stime = $threshold->secs_since_1970_GMT() - 86400;
+
+  my @msgs;
+  if ( $imap->has_capability('WITHIN') )
+  {
+    # RFC 5032
+    @msgs = $imap->search('YOUNGER', $options->{'younger-age'});
+
+    # short-circuit the rest of this nonsense
+    return scalar(keys(@msgs));
+  }
+#  elsif ( $imap->has_capability('SORT') )
+#  {
+#    # RFC 5256
+#    @msgs = $imap->sort('(ARRIVAL)');
+#  }
+  else
+  {
+    @msgs = $imap->search('SINCE', $imap->Quote($imap->Rfc3501_date($stime)));
+  }
+  if ( $@ )
+  {
+    $msg->update(3, "Error searching: $@");
+    return undef;
+  }
+
+  my $mi = $imap->fetch_hash(\@msgs, 'INTERNALDATE');
+  my $ct = 0;
+  foreach my $i (values(%$mi))
+  {
+    my $date = new Date::Manip::Date;
+    if ( $date->parse($i->{'INTERNALDATE'}) == 0 )
+    {
+      if ( $threshold->cmp($date) <= 0 )
+      {
+        $ct++;
+      }
+    }
+  }
+
+  return $ct;
+  
+}
+
+## Check count of new messages
+sub check_younger {
+  my $msg = shift;
+  my $ct = shift;
+
+  if ( defined($options->{'max-younger-crit'}) && $ct > $options->{'max-younger-crit'} )
+  {
+    $msg->update(2, "$ct messages newer than $options->{'younger-age'} secs in $options->{folder}");
+  }
+
+  if ( defined($options->{'min-younger-crit'}) && $ct < $options->{'min-younger-crit'} )
+  {
+    $msg->update(2, "$ct messages newer than $options->{'younger-age'} secs in $options->{folder}");
+  }
+
+  if ( defined($options->{'max-younger-warn'}) && $ct > $options->{'max-younger-warn'} )
+  {
+    $msg->update(1, "$ct messages newer than $options->{'younger-age'} secs in $options->{folder}");
+  }
+
+  if ( defined($options->{'min-younger-warn'}) && $ct < $options->{'min-younger-warn'} )
+  {
+    $msg->update(1, "$ct messages newer than $options->{'younger-age'} secs in $options->{folder}");
+  }
+
+}
+
+## Check unseen messages
+sub check_unseen {
+  my $msg = shift;
+  my $unseen = shift;
+
   if ( defined $options->{'max-unread-crit'} && $unseen > $options->{'max-unread-crit'} )
   {
      $msg->update(2, "$unseen unread messages in $options->{folder}");
@@ -211,17 +380,7 @@ else
   {
      $msg->update(1, "$unseen unread messages in $options->{folder}");
   }
-
-  # won't override if an error's been reported, so this is safe:
-  $msg->update(0, "$unseen unread messages");
-
 }
-
-
-print $msg->getmsg();
-print "\n";
-exit $msg->getstatus();
-
 
 package check_imap_mailbox::msg;
 use Carp;
