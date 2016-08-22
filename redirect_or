@@ -1,0 +1,146 @@
+#!/usr/bin/perl -w
+# N.B. this plugin uses exec, so this will be needed:
+# nagios: -epn
+#
+# Run a check iff an HTTP URL does not redirect somewhere.
+# Use for Free Day reservations, etc.
+
+use strict;
+use LWP::UserAgent;
+use Getopt::Long;
+
+my %ERRORS = ('OK' => 0
+             ,'WARNING' => 1
+             ,'CRITICAL' => 2
+             ,'UNKNOWN' => 3
+             );
+
+my %config;
+# Defaults
+$config{'timeout'} = 10;
+
+
+sub printhelp() {
+  print "Usage: $0--url <URL> [PARAMETERS]\n";
+  print "       --plugin-path <path to plugin>\n";
+  print "       --\n";
+  print "       <arguments for plugin>\n";
+  print << 'EOF';
+
+Check specified URL to see if it's redirected somewhere. If not, run the
+specified check plugin; if so, return OK. If an error occurs while doing
+the HTTP check, returns UNKNOWN.
+
+Required parameters:
+  --url <URL>           URL to check for redirect
+  --plugin-path <PATH>  path to check_imap_mailbox
+
+Optional parameters:
+  --expected-url <URL>  URL redirect should go to. If this option is specified,
+                        a CRITICAL warning will be raised if the redirect points
+                        anywhere else.
+EOF
+print "  --timeout <SECS>      Timeout for HTTP check in seconds, default $config{'timeout'}\n";
+print << 'EOF';
+
+EOF
+  exit $ERRORS{'UNKNOWN'};
+}
+
+
+GetOptions('url=s'              => \$config{'url'}
+          ,'plugin-path|p=s'    => \$config{'cim'}
+          ,'timeout=i'          => \$config{'timeout'}
+          ,'expected-url=s'     => \$config{'expected-url'}
+          ,'help'               => \$config{'help'}
+          ) or printhelp();
+
+
+# Avoid "Unknown option --help"
+if ($config{'help'}) {
+  printhelp();
+}
+unless($config{'url'} && $config{'cim'}) {
+  printhelp();
+}
+
+
+
+my $ua = LWP::UserAgent->new(max_redirect => 0
+                            ,timeout => $config{'timeout'}
+                            );
+
+my $r = HTTP::Request->new('GET' => $config{'url'});
+my $response = $ua->request($r);
+
+
+if ($response->is_success()) {
+  # Run mail checker
+  exec {$config{'cim'}} $config{'cim'}, @ARGV or die "Unable to exec ${config{'cim'}}\n";
+} elsif ($response->is_redirect) {
+  if (defined($config{'expected-url'})) {
+    # Do special response checking
+    # Normally one would have a separate check defined to look at this,
+    # but we can also do it from here.
+    if (defined($response->header('Location'))
+         && $response->header('Location') == $config{'expected-url'}) {
+      exit_with($ERRORS{'OK'}, "Redirecting to " . $response->header('Location'));
+    } else {
+      exit_with($ERRORS{'CRITICAL'}, "Redirecting to " .
+                (defined($response->header('Location')) ?
+                 $response->header('Location') : "unknown URL"));
+    }
+  } else {
+    # No special processing
+    exit_with($ERRORS{'OK'}, "Redirecting to " .
+              (defined($response->header('Location')) ?
+               $response->header('Location') : "unknown URL"));
+  }
+} else {
+  # XXX allow existing WARNING or CRITICAL with this
+  exit_with($ERRORS{'UNKNOWN'}, $response->status_line());
+}
+
+exit 255;
+
+
+
+
+
+# Exit program, printing message appropriate for return level
+# Usage: exit_with($ERRORS{'somelevel'}, "my nice message", @perfdata);
+sub exit_with {
+  my $level = shift;
+  my $message = shift;
+  my %perf = @_;
+
+  if (! defined($level)) {
+    print "UNKNOWN";
+  } elsif ($level == $ERRORS{'OK'}) {
+    print "OK";
+  } elsif ($level == $ERRORS{'WARNING'}) {
+    print "WARNING";
+  } elsif ($level == $ERRORS{'CRITICAL'}) {
+    print "CRITICAL";
+  } else {
+    print "UNKNOWN";
+  }
+  print ": ";
+  print $message;
+
+  my $pd = join(',', map {$_ . '=' . $perf{$_}} keys(%perf));
+
+  if ($pd) {
+    print "|${pd}";
+  }
+  print "\n";
+  exit defined($level) ? $level : $ERRORS{'UNKNOWN'};
+}
+
+
+
+
+
+
+
+
