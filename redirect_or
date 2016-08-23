@@ -21,8 +21,9 @@ $config{'timeout'} = 10;
 
 
 sub printhelp() {
-  print "Usage: $0--url <URL> [PARAMETERS]\n";
+  print "Usage: $0 --url <URL>\n";
   print "       --plugin-path <path to plugin>\n";
+  print "       [PARAMETERS]\n";
   print "       --\n";
   print "       <arguments for plugin>\n";
   print << 'EOF';
