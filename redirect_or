@@ -135,7 +135,7 @@ sub exit_with {
     print "|${pd}";
   }
   print "\n";
-  exit defined($level) ? $level : $ERRORS{'UNKNOWN'};
+  exit (defined($level) ? $level : $ERRORS{'UNKNOWN'});
 }
 
 
